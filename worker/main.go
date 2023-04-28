@@ -9,6 +9,7 @@ import (
 	"github.com/MeenaAlfons/go-shot/config"
 	"github.com/MeenaAlfons/go-shot/localstack"
 	"github.com/MeenaAlfons/go-shot/structs"
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
@@ -31,9 +32,24 @@ func main() {
 	// The following is a dummy line:
 	_ = awsConfig
 
-	sqsService := sqs.NewFromConfig(*awsConfig)
+	c := make(chan structs.Message)
+	go getMessages(c, awsConfig)
 
+	for {
+		msg := <-c
+		fmt.Println("Message: ", msg)
+	}
+}
+
+func getMessages(c chan structs.Message, awsConfig *aws.Config) {
+
+	cfg, err := config.GetConfig()
+	sqsService := sqs.NewFromConfig(*awsConfig)
 	ctx := context.TODO()
+
+	if err != nil {
+		fmt.Println("Error from cfg: ", err)
+	}
 
 	for {
 		msgOutput, err := sqsService.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
@@ -48,6 +64,7 @@ func main() {
 				if err != nil {
 					fmt.Println("Error unmarshalling json: ", err)
 				}
+				c <- message
 			}
 		}
 	}
