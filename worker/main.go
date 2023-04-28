@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 
 	"github.com/MeenaAlfons/go-shot/config"
 	"github.com/MeenaAlfons/go-shot/localstack"
+	"github.com/MeenaAlfons/go-shot/structs"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 )
 
 func main() {
@@ -25,4 +30,25 @@ func main() {
 	// like SQS, SNS, etc.
 	// The following is a dummy line:
 	_ = awsConfig
+
+	sqsService := sqs.NewFromConfig(*awsConfig)
+
+	ctx := context.TODO()
+
+	for {
+		msgOutput, err := sqsService.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+			QueueUrl: &cfg.Queue,
+		})
+		if err != nil {
+			fmt.Println("Error: ", err)
+		} else {
+			for _, msg := range msgOutput.Messages {
+				message := structs.Message{}
+				err = json.Unmarshal([]byte(*msg.Body), &message)
+				if err != nil {
+					fmt.Println("Error unmarshalling json: ", err)
+				}
+			}
+		}
+	}
 }
