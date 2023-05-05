@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/MeenaAlfons/go-shot/config"
 	"github.com/MeenaAlfons/go-shot/localstack"
@@ -34,6 +35,7 @@ func main() {
 	_ = awsConfig
 
 	c := make(chan structs.Message)
+
 	go getMessages(c, awsConfig)
 
 	messages := make(map[string][]structs.Message)
@@ -46,33 +48,48 @@ func main() {
 
 		if len(messages[msg.AppId]) == cfg.MaxBatchSize {
 			fmt.Println("Batch size reached for app: ", msg.AppId)
-			notification := structs.Notification{
-				Messages: messages[msg.AppId],
-			}
+			publishAndClear(messages, msg, snsService)
+		}
 
-			notificationJson, err := json.Marshal(notification)
-			if err != nil {
-				fmt.Println("Error marshalling json: ", err)
-			}
-
-			topic, err := snsService.CreateTopic(context.TODO(), &sns.CreateTopicInput{
-				Name: aws.String(msg.AppId),
-			})
-
-			if err != nil {
-				fmt.Println("Error creating topic: ", err)
-			}
-
-			_, err = snsService.Publish(context.TODO(), &sns.PublishInput{
-				Message:  aws.String(string(notificationJson)),
-				TopicArn: topic.TopicArn,
-			})
-			if err != nil {
-				fmt.Println("Error publishing message: ", err)
-			}
-			messages[msg.AppId] = []structs.Message{}
+		if len(messages[msg.AppId]) == 1 {
+			go func() {
+				// As soon as we have the first messages we sleep for the time set
+				<-time.After(time.Duration(cfg.MaxBatchInterval) * time.Second)
+				if len(messages[msg.AppId]) > 0 {
+					fmt.Println("Max batch interval reached for app: ", msg.AppId)
+					publishAndClear(messages, msg, snsService)
+				}
+			}()
 		}
 	}
+}
+
+func publishAndClear(messages map[string][]structs.Message, msg structs.Message, snsService *sns.Client) {
+	notification := structs.Notification{
+		Messages: messages[msg.AppId],
+	}
+
+	notificationJson, err := json.Marshal(notification)
+	if err != nil {
+		fmt.Println("Error marshalling json: ", err)
+	}
+
+	topic, err := snsService.CreateTopic(context.TODO(), &sns.CreateTopicInput{
+		Name: aws.String(msg.AppId),
+	})
+
+	if err != nil {
+		fmt.Println("Error creating topic: ", err)
+	}
+
+	_, err = snsService.Publish(context.TODO(), &sns.PublishInput{
+		Message:  aws.String(string(notificationJson)),
+		TopicArn: topic.TopicArn,
+	})
+	if err != nil {
+		fmt.Println("Error publishing message: ", err)
+	}
+	messages[msg.AppId] = []structs.Message{}
 }
 
 func getMessages(c chan structs.Message, awsConfig *aws.Config) {
